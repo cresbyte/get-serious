@@ -7,14 +7,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color scheme inspired by peaclock - bold, serious, terminal aesthetic
+// Color scheme inspired by terminal defaults
 var (
-	// Colors
-	primaryColor = lipgloss.Color("#00FF00") // Matrix green
-	accentColor  = lipgloss.Color("#FF0000") // Alert red
-	dimColor     = lipgloss.Color("#666666") // Dim gray
-	bgColor      = lipgloss.Color("#000000") // Pure black
-	warningColor = lipgloss.Color("#FFFF00") // Warning yellow
+	// Colors using ANSI indices for maximum compatibility
+	primaryColor = lipgloss.AdaptiveColor{Light: "2", Dark: "10"} // Green
+	accentColor  = lipgloss.AdaptiveColor{Light: "1", Dark: "9"}  // Red
+	dimColor     = lipgloss.AdaptiveColor{Light: "8", Dark: "7"}  // Gray/Dim
+	warningColor = lipgloss.AdaptiveColor{Light: "3", Dark: "11"} // Yellow
 
 	// Styles
 	titleStyle = lipgloss.NewStyle().
@@ -40,6 +39,11 @@ var (
 			Foreground(warningColor).
 			Bold(true).
 			Align(lipgloss.Center)
+
+	containerStyle = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(primaryColor).
+			Padding(1, 2)
 )
 
 // View renders the TUI
@@ -48,15 +52,107 @@ func (m Model) View() string {
 		return ""
 	}
 
-	var b strings.Builder
+	var content string
+	if m.state == stateSetup {
+		content = m.setupView()
+	} else if m.state == stateSites {
+		content = m.sitesView()
+	} else {
+		content = m.timerView()
+	}
 
-	// Add some top padding
-	b.WriteString("\n\n\n")
+	// Wrap in container with double border
+	// We subtract border width (2) and padding (4) from width/height
+	return containerStyle.
+		Width(m.width - 6).
+		Height(m.height - 4).
+		Render(content)
+}
+
+func (m Model) sitesView() string {
+	var b strings.Builder
 
 	// Title with ASCII art
 	title := m.renderTitle()
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
+
+	// Header
+	header := "Step 2: Select sites to block"
+	b.WriteString(timeStyle.Render(header))
+	b.WriteString("\n\n")
+
+	// List of sites
+	for i, site := range m.selectableSites {
+		cursor := " "
+		if m.cursor == i {
+			cursor = ">"
+		}
+
+		checked := "[ ]"
+		if site.selected {
+			checked = "[x]"
+		}
+
+		itemStyle := lipgloss.NewStyle().Foreground(primaryColor).Align(lipgloss.Left).PaddingLeft(4)
+		if m.cursor == i {
+			itemStyle = itemStyle.Foreground(accentColor).Bold(true)
+		}
+
+		b.WriteString(itemStyle.Render(fmt.Sprintf("%s %s %s", cursor, checked, site.name)) + "\n")
+	}
+
+	// Virtual "Start" button
+	startCursor := " "
+	if m.cursor == len(m.selectableSites) {
+		startCursor = ">"
+	}
+	startStyle := lipgloss.NewStyle().Foreground(warningColor).Align(lipgloss.Left).PaddingLeft(4).Bold(true)
+	if m.cursor == len(m.selectableSites) {
+		startStyle = startStyle.Background(primaryColor).Foreground(lipgloss.AdaptiveColor{Light: "15", Dark: "0"})
+	}
+	b.WriteString("\n")
+	b.WriteString(startStyle.Render(fmt.Sprintf("%s [ START SESSION ]", startCursor)) + "\n\n")
+
+	// Custom Input
+	if m.showCustomInput {
+		b.WriteString(lipgloss.NewStyle().Align(lipgloss.Center).Width(m.width).Render(m.siteInput.View()))
+		b.WriteString("\n\n")
+	}
+
+	// Instructions
+	instructions := "↑/↓: Navigate • SPACE: Toggle • ENTER: Select/Start • CTRL+C: Quit"
+	b.WriteString(instructionStyle.Render(instructions))
+
+	return b.String()
+}
+
+func (m Model) setupView() string {
+	var b strings.Builder
+
+	// Title with ASCII art
+	title := m.renderTitle()
+	b.WriteString(titleStyle.Render(title))
+	b.WriteString("\n\n")
+
+	// Header
+	header := "Step 1: How long do you want to get serious?"
+	b.WriteString(timeStyle.Render(header))
+	b.WriteString("\n\n")
+
+	// Input
+	b.WriteString(lipgloss.NewStyle().Align(lipgloss.Center).Width(m.width).Render(m.input.View()))
+	b.WriteString("\n\n")
+
+	// Instructions
+	instructions := "Press ENTER to continue • Press CTRL+C to quit"
+	b.WriteString(instructionStyle.Render(instructions))
+
+	return b.String()
+}
+
+func (m Model) timerView() string {
+	var b strings.Builder
 
 	// Status indicator
 	status := m.renderStatus()
@@ -102,33 +198,129 @@ func (m Model) renderStatus() string {
 	return "⚡ READY TO LOCK ⚡"
 }
 
+var bigDigits = map[rune][]string{
+	'0': {
+		"██████",
+		"██  ██",
+		"██  ██",
+		"██  ██",
+		"██████",
+	},
+	'1': {
+		"    ██",
+		"    ██",
+		"    ██",
+		"    ██",
+		"    ██",
+	},
+	'2': {
+		"██████",
+		"    ██",
+		"██████",
+		"██    ",
+		"██████",
+	},
+	'3': {
+		"██████",
+		"    ██",
+		"██████",
+		"    ██",
+		"██████",
+	},
+	'4': {
+		"██  ██",
+		"██  ██",
+		"██████",
+		"    ██",
+		"    ██",
+	},
+	'5': {
+		"██████",
+		"██    ",
+		"██████",
+		"    ██",
+		"██████",
+	},
+	'6': {
+		"██████",
+		"██    ",
+		"██████",
+		"██  ██",
+		"██████",
+	},
+	'7': {
+		"██████",
+		"    ██",
+		"    ██",
+		"    ██",
+		"    ██",
+	},
+	'8': {
+		"██████",
+		"██  ██",
+		"██████",
+		"██  ██",
+		"██████",
+	},
+	'9': {
+		"██████",
+		"██  ██",
+		"██████",
+		"    ██",
+		"██████",
+	},
+	':': {
+		"      ",
+		"  ██  ",
+		"      ",
+		"  ██  ",
+		"      ",
+	},
+	' ': {
+		"      ",
+		"      ",
+		"      ",
+		"      ",
+		"      ",
+	},
+}
+
 func (m Model) renderTime() string {
 	hours := int(m.remaining.Hours())
 	minutes := int(m.remaining.Minutes()) % 60
 	seconds := int(m.remaining.Seconds()) % 60
 
-	// Large digital-style time display
+	// Format time string
 	timeStr := fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 
-	// Make it HUGE
+	// Render large block digits
 	bigTime := m.renderBigDigits(timeStr)
 
+	style := timeStyle
 	if m.locked {
-		return lockedTimeStyle.Render(bigTime)
+		style = lockedTimeStyle
 	}
-	return timeStyle.Render(bigTime)
+
+	return style.Render(bigTime)
 }
 
 func (m Model) renderBigDigits(timeStr string) string {
-	// Simple large digit rendering
-	// In a full implementation, you'd have ASCII art for each digit
-	return fmt.Sprintf(`
-    ╔═══════════════════════════╗
-    ║                           ║
-    ║       %s       ║
-    ║                           ║
-    ╚═══════════════════════════╝
-`, timeStr)
+	height := 5
+	var result []string
+	for i := 0; i < height; i++ {
+		var line strings.Builder
+		for _, char := range timeStr {
+			if patterns, ok := bigDigits[char]; ok {
+				line.WriteString(patterns[i])
+				line.WriteString("  ") // Spacing between digits
+			}
+		}
+		result = append(result, line.String())
+	}
+
+	// Join lines and center the whole block
+	block := strings.Join(result, "\n")
+	return lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(block)
 }
 
 func (m Model) renderProgressBar() string {
